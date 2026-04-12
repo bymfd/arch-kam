@@ -17,6 +17,15 @@ A powerful ritual to guide your system into a deep, protected slumber (hibernati
 
 ---
 
+### 2. **ARKUN: The Spirit of Endurance** (battery.sh)
+A sacred discipline to harmonize the machine's breath, calming its inner fire to preserve life force (**Battery Life**) during long journeys.
+
+* **The Rite:** Invokes **TLP** protocols to manage energy flow, ensuring the system sips power with wisdom.
+* **The Duality:** Allows the traveler to **Grant Kut** (Install) for longevity or **Recall Kut** (Remove) for untamed performance.
+* **Thermal Balance:** Lowers the system's temperature by curbing excess energy, keeping the hardware cool and composed.
+* **Swift Restoration:** A single command purifies the system, removing the ritual and returning the machine to its primal state.
+---
+
 ## Performing the Rituals
 
 ### Prerequisites
