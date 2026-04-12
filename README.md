@@ -26,6 +26,19 @@ A sacred discipline to harmonize the machine's breath, calming its inner fire to
 * **Swift Restoration:** A single command purifies the system, removing the ritual and returning the machine to its primal state.
 ---
 
+### 3. **TIN:** Vision & Void (bootloader-bg.sh)
+
+A ritual to define the system's entry point and visual essence.
+
+*   The Vision: Allows the user to etch a custom image (PNG/JPG) onto the GRUB gateway.
+
+*    The Void: Strips away all earthly illusions (themes/backgrounds) to achieve a Pure Black terminal interface.
+
+*    Safety: Automatically creates sacred backups (.bak) of your scrolls before any modification.
+
+*   Intelligence: Detects whether your system is guided by the ancient GRUB or the swift systemd-boot.
+
+---
 ## Performing the Rituals
 
 ### Prerequisites
