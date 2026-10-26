@@ -1,0 +1,13 @@
+name: emergeclean
+title: Gentoo Temizliği
+desc: emerge ile artık paket ve önbellek temizliği
+distro:
+  - gentoo
+needs_root: true
+can_write: true
+commands:
+  depclean: emerge --depclean
+  clean: eclean packages
+  distclean: eclean distfiles
+summary:
+  ok: "Gentoo temizliği tamam."

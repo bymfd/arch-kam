@@ -1,0 +1,13 @@
+name: apktool
+title: Alpine Araçları
+desc: apk paket temizliği ve hızlı durum özeti
+distro:
+  - alpine
+needs_root: true
+can_write: true
+commands:
+  update: apk update
+  cache_clean: rm -rf /var/cache/apk/*
+  orphans: apk info -v | grep -v 'installed'
+summary:
+  ok: "Alpine temizliği tamam."

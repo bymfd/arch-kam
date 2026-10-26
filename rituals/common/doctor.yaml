@@ -1,5 +1,11 @@
 name: doctor
 title: Teşhis Ritüeli
+distro:
+  - arch
+  - deb
+  - fedora
+  - alpine
+  - gentoo
 desc: Salt okunur sistem teşhisi
 needs_root: false
 can_write: false

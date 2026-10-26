@@ -1,0 +1,15 @@
+name: pacnew
+title: Pacnew Çiftleri
+desc: .pacnew/.pacsave çiftlerini bul ve listele
+distro:
+  - arch
+needs_root: false
+can_write: false
+scan_dirs:
+  - /etc
+suffixes:
+  - pacnew
+  - pacsave
+summary:
+  none: "Çift yok; /etc temiz."
+  found: "{count} .pacnew/.pacsave çifti bulundu."

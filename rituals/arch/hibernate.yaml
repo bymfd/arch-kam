@@ -1,0 +1,33 @@
+name: hibernate
+title: Uyku Ritüeli
+desc: Swap + hibernate yapılandırması
+distro:
+  - arch
+  - deb
+needs_root: true
+can_write: true
+swapfile: /swapfile
+default_size: ram+2048
+bootloaders:
+  - grub
+  - systemd-boot
+  - kernelstub
+files:
+  grub: /etc/default/grub
+  mkinitcpio: /etc/mkinitcpio.conf
+  kernel_cmdline: /etc/kernel/cmdline
+  systemd_boot_entries: /boot/loader/entries/*.conf
+  debian_cmdline: /etc/default/grub.d/*
+backup_suffix: .arch-kam-hibernate.bak
+steps:
+  - id: create_swap
+    desc: "Swap dosyasını oluştur ve etkinleştir"
+  - id: resume_params
+    desc: "resume= ve resume_offset= parametrelerini yaz"
+  - id: resume_hook
+    desc: "mkinitcpio resume hook ekle"
+  - id: regenerate
+    desc: "initramfs ve bootloader yenile"
+summary:
+  ok: "Ritüel tamam. Yeniden başlat, sonra test et: systemctl hibernate"
+  restore: "Geri alma tamam. Yeniden başlat."

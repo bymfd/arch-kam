@@ -1,0 +1,17 @@
+name: aptclean
+title: Deb Temizliği
+desc: apt önbellek, artık paket ve journal temizliği
+distro:
+  - deb
+needs_root: true
+can_write: true
+dry_run_flag: --dry-run
+yes_flag: --yes
+commands:
+  cache: apt-get clean
+  autoclean: apt-get autoclean
+  autoremove: apt-get -y autoremove
+  journal: journalctl --vacuum-time=14d
+  tmpfiles: systemd-tmpfiles --clean
+summary:
+  ok: "Deb temizliği tamam."

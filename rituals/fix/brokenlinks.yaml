@@ -1,0 +1,14 @@
+name: brokenlinks
+title: Kırık Sembolik Bağlar
+desc: Sistemdeki kırık symlink'leri bul
+needs_root: false
+can_write: false
+scan_dirs:
+  - /usr/bin
+  - /usr/lib
+  - /usr/local/bin
+  - /etc
+max_depth: 4
+summary:
+  none: "Kırık symlink yok."
+  found: "{count} kırık sembolik bağ bulundu."

@@ -1,0 +1,14 @@
+name: docker
+title: Docker Temizliği
+desc: Kullanılmayan imaj, konteyner ve volume'leri temizle
+needs_root: true
+can_write: true
+dry_run_flag: --dry-run
+commands:
+  prune_containers: docker container prune -f
+  prune_images: docker image prune -f
+  prune_volumes: docker volume prune -f
+  prune_all: docker system prune -af
+summary:
+  ok: "Docker temizliği tamam."
+  not_installed: "Docker kurulu değil."

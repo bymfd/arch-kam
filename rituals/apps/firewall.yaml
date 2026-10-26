@@ -1,0 +1,17 @@
+name: firewall
+title: Güvenlik Duvarı
+desc: Dağıtım güvenlik duvarını etkinleştir ve durumunu göster
+needs_root: true
+can_write: true
+tools:
+  - ufw
+  - firewall-cmd
+  - nft
+  - iptables
+checks:
+  - service
+  - status
+summary:
+  ok: "Güvenlik duvarı etkin."
+  inactive: "Güvenlik duvarı etkin değil: {tool}"
+  none: "Tanınan güvenlik duvarı yok."

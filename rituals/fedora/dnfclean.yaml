@@ -1,0 +1,16 @@
+name: dnfclean
+title: Fedora Temizliği
+desc: dnf önbellek, artık paket ve journal temizliği
+distro:
+  - fedora
+needs_root: true
+can_write: true
+dry_run_flag: --dry-run
+yes_flag: --yes
+commands:
+  clean: dnf clean all
+  autoremove: dnf -y autoremove
+  journal: journalctl --vacuum-time=14d
+  tmpfiles: systemd-tmpfiles --clean
+summary:
+  ok: "Fedora temizliği tamam."

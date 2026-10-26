@@ -1,0 +1,85 @@
+name: aptdoctor
+title: Deb Teşhisi
+desc: Debian/Ubuntu sistemin salt okunur teşhisi
+distro:
+  - deb
+needs_root: false
+can_write: false
+sections:
+  - id: system
+    title: Sistem
+    checks:
+      - id: os
+        kind: output
+        params:
+          command: awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2; exit}' /etc/os-release
+        pass:
+          level: note
+          message: "Dağıtım: {value}"
+        fail:
+          level: note
+          message: "Dağıtım: bilinmiyor"
+      - id: kernel
+        kind: literal
+        params:
+          value: "Kernel: $(uname -r)"
+        pass:
+          level: note
+          message: "{value}"
+      - id: apt
+        kind: command_exists
+        params:
+          command: apt-get
+        pass:
+          level: ok
+          message: "apt-get kurulu"
+        fail:
+          level: bad
+          message: "apt-get bulunamadı"
+  - id: disk
+    title: Disk
+    checks:
+      - id: df
+        kind: output
+        params:
+          command: df -h / /boot 2>/dev/null | awk 'NR==1 {print; next} !seen[$6]++ {print}'
+        pass:
+          level: note
+          message: "{value}"
+  - id: memory
+    title: Bellek ve swap
+    checks:
+      - id: free
+        kind: output
+        params:
+          command: free -h
+        pass:
+          level: note
+          message: "{value}"
+      - id: swapon
+        kind: swapon
+        pass:
+          level: note
+          message: "{value}"
+  - id: services
+    title: Servisler ve paketler
+    checks:
+      - id: failed_units
+        kind: failed_units
+        pass:
+          level: ok
+          message: "Başarısız systemd unit yok"
+        fail:
+          level: bad
+          message: "Başarısız systemd unit: {value}"
+      - id: orphans
+        kind: orphans
+        pass:
+          level: ok
+          message: "Artık paket yok"
+        fail:
+          level: note
+          message: "Artık paketler ({count}): {value}"
+summary:
+  ok: "Teşhis tamam: kritik sorun yok."
+  issues: "Teşhis tamam: {issues} sorun bulundu."

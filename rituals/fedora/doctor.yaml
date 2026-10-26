@@ -1,0 +1,77 @@
+name: dnfdoctor
+title: Fedora Teşhisi
+desc: Fedora/RHEL sistemin salt okunur teşhisi
+distro:
+  - fedora
+needs_root: false
+can_write: false
+sections:
+  - id: system
+    title: Sistem
+    checks:
+      - id: os
+        kind: output
+        params:
+          command: awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2; exit}' /etc/os-release
+        pass:
+          level: note
+          message: "Dağıtım: {value}"
+        fail:
+          level: note
+          message: "Dağıtım: bilinmiyor"
+      - id: kernel
+        kind: literal
+        params:
+          value: "Kernel: $(uname -r)"
+        pass:
+          level: note
+          message: "{value}"
+      - id: dnf
+        kind: command_exists
+        params:
+          command: dnf
+        pass:
+          level: ok
+          message: "dnf kurulu"
+        fail:
+          level: bad
+          message: "dnf bulunamadı"
+  - id: disk
+    title: Disk
+    checks:
+      - id: df
+        kind: output
+        params:
+          command: df -h / /boot 2>/dev/null | awk 'NR==1 {print; next} !seen[$6]++ {print}'
+        pass:
+          level: note
+          message: "{value}"
+  - id: memory
+    title: Bellek ve swap
+    checks:
+      - id: free
+        kind: output
+        params:
+          command: free -h
+        pass:
+          level: note
+          message: "{value}"
+      - id: swapon
+        kind: swapon
+        pass:
+          level: note
+          message: "{value}"
+  - id: services
+    title: Servisler ve paketler
+    checks:
+      - id: failed_units
+        kind: failed_units
+        pass:
+          level: ok
+          message: "Başarız systemd unit yok"
+        fail:
+          level: bad
+          message: "Başarısız systemd unit: {value}"
+summary:
+  ok: "Teşhis tamam: kritik sorun yok."
+  issues: "Teşhis tamam: {issues} sorun bulundu."

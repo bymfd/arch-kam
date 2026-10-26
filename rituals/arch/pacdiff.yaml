@@ -1,0 +1,22 @@
+name: pacdiff
+title: Safeguard Ritüeli
+desc: .pacnew / .pacsave çiftlerini denetle ve uygul
+distro:
+  - arch
+needs_root: false
+can_write: true
+modes:
+  - list
+  - diff
+  - resolve
+scan_dirs:
+  - /etc
+suffixes:
+  - pacnew
+  - pacsave
+resolve:
+  backup_suffix: .arch-kam-pacnew.bak
+  confirm_prompt: "{new} -> {old} üzerine yazılsın mı?"
+summary:
+  none: "Çift yok; /etc temiz görünüyor."
+  found: "{count} çift bulundu."
