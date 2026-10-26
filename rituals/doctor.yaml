@@ -1,0 +1,219 @@
+name: doctor
+title: Teşhis Ritüeli
+desc: Salt okunur sistem teşhisi
+needs_root: false
+can_write: false
+summary:
+  ok: "Teşhis tamam: kritik sorun yok."
+  issues: "Teşhis tamam: {issues} sorun bulundu."
+sections:
+  - id: system
+    title: Sistem
+    checks:
+      - id: os
+        kind: output
+        params:
+          command: awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2; exit}' /etc/os-release
+        pass:
+          level: note
+          message: "Dağıtım: {value}"
+        fail:
+          level: note
+          message: "Dağıtım: bilinmiyor"
+      - id: kernel
+        kind: literal
+        params:
+          value: "Kernel: $(uname -r)"
+        pass:
+          level: note
+          message: "{value}"
+      - id: arch
+        kind: arch
+        pass:
+          level: ok
+          message: "Arch tabanlı"
+        fail:
+          level: bad
+          message: "Arch tabanlı değil (pacman bulunamadı)"
+  - id: boot
+    title: Önyükleme
+    checks:
+      - id: bootloader
+        kind: bootloader
+        pass:
+          level: ok
+          message: "Bootloader: {value}"
+        fail:
+          level: bad
+          message: "Bootloader tanınmadı"
+      - id: rootfs
+        kind: rootfs
+        pass:
+          level: note
+          message: "Kök dosya sistemi: {value}"
+      - id: secureboot
+        kind: mokutil
+        pass:
+          level: note
+          message: "Secure Boot: {value}"
+        fail:
+          level: note
+          message: "Secure Boot: bilinmiyor"
+  - id: disk
+    title: Disk
+    checks:
+      - id: df
+        kind: output
+        params:
+          command: df -h / /boot /var 2>/dev/null | awk 'NR==1 {print; next} !seen[$6]++ {print}'
+        pass:
+          level: note
+          message: "{value}"
+  - id: memory
+    title: Bellek ve swap
+    checks:
+      - id: free
+        kind: output
+        params:
+          command: free -h
+        pass:
+          level: note
+          message: "{value}"
+      - id: swapon
+        kind: swapon
+        pass:
+          level: note
+          message: "{value}"
+      - id: zram
+        kind: zram
+        pass:
+          level: warn
+          message: "zram aktif: {value}"
+        fail:
+          level: note
+          message: "zram aktif değil"
+      - id: swap_size
+        kind: compare
+        params:
+          cmd: free -m
+          a_cmd: awk '/^Swap:/ {print $2}'
+          b_cmd: awk '/^Mem:/ {print $2}'
+          op: ge
+        pass:
+          level: note
+          message: "Swap yeterli ({value}MB)"
+        fail:
+          level: warn
+          message: "Swap ({value}MB) RAM'den ({b}MB) küçük; hibernate başarısız olabilir."
+  - id: hibernate
+    title: Hibernate
+    checks:
+      - id: support
+        kind: file_grep
+        params:
+          file: /sys/power/state
+          pattern: disk
+        pass:
+          level: ok
+          message: "Kernel hibernate (disk) destekliyor"
+        fail:
+          level: bad
+          message: "Kernel hibernate desteklemiyor (test: cat /sys/power/state)"
+      - id: resume
+        kind: cmdline_has
+        params:
+          key: resume
+        pass:
+          level: ok
+          message: "resume={value}"
+        fail:
+          level: note
+          message: "resume= kernel parametresi yok (hibernate kullanmıyorsan normaldir)"
+      - id: resume_offset
+        kind: cmdline_has
+        params:
+          key: resume_offset
+        pass:
+          level: ok
+          message: "resume_offset={value}"
+        fail:
+          level: note
+          message: "resume_offset yok (swapfile ile hibernate için gerekli)"
+      - id: hook
+        kind: mkinitcpio_hook
+        params:
+          hook: resume
+        pass:
+          level: ok
+          message: "mkinitcpio resume hook var"
+        fail:
+          level: bad
+          message: "mkinitcpio resume hook yok"
+  - id: power
+    title: Güç yönetimi
+    checks:
+      - id: tlp
+        kind: output
+        params:
+          command: tlp-stat -s
+        pass:
+          level: ok
+          message: "TLP kurulu"
+        fail:
+          level: note
+          message: "TLP kurulu değil"
+      - id: ppd
+        kind: service_active
+        params:
+          service: power-profiles-daemon.service
+        pass:
+          level: warn
+          message: "power-profiles-daemon aktif; TLP ile çakışabilir."
+        fail:
+          level: ok
+          message: "power-profiles-daemon çalışmıyor"
+  - id: services
+    title: Servisler ve paketler
+    checks:
+      - id: failed_units
+        kind: failed_units
+        pass:
+          level: ok
+          message: "Başarısız systemd unit yok"
+        fail:
+          level: bad
+          message: "Başarısız systemd unit: {value}"
+      - id: masked_units
+        kind: masked_units
+        pass:
+          level: ok
+          message: "Maskeli unit yok"
+        fail:
+          level: warn
+          message: "Maskeli unit: {value}"
+      - id: orphans
+        kind: orphans
+        pass:
+          level: ok
+          message: "Yetim paket yok"
+        fail:
+          level: note
+          message: "Yetim paketler ({count}): {value}"
+      - id: foreign
+        kind: foreign
+        pass:
+          level: ok
+          message: "Foreign paket yok"
+        fail:
+          level: note
+          message: "Elle kurulan (AUR/foreign) paketler ({count}): {value}"
+      - id: pacnew
+        kind: glob_count
+        params:
+          pattern: "/etc/**/*.pacnew"
+        pass:
+          level: ok
+          message: "Pacnew çifti yok"
+        fail:
+          level: warn
+          message: "{value} .pacnew/.pacsave çifti bekliyor; pacdiff ritüeli çalıştır."
