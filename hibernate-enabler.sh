@@ -1,147 +1,380 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# =================================================================
-# Project: arch-kam (The Shamanic System Healer)
-# Ritual: Linux Hibernate Enabler (Anti-Kamos Protocol)
-# Description: Automated Swap & Hibernate configuration for Arch-based systems
-# Supports: BTRFS and EXT4 file systems
-# =================================================================
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# Renk Tanımlamaları
-SET_GREEN='\033[0;32m'
-SET_RED='\033[0;31m'
-SET_YELLOW='\033[1;33m'
-SET_NC='\033[0m'
+SWAPFILE=/swapfile
+TARGET_SWAP_MB=
+FORCE=0
+RESTORE=0
 
-# Hata anında ritüeli durdur
-set -e
+usage() {
+	cat <<EOF
+Kullanım: sudo $0 [--size MB] [--force] [--restore]
 
-log() { echo -e "${SET_GREEN}[INFO] $1${SET_NC}"; }
-warn() { echo -e "${SET_YELLOW}[WARN] $1${SET_NC}"; }
-error() {
-    echo -e "${SET_RED}[ERROR] $1${SET_NC}"
-    echo -e "${SET_RED}"
-    cat << "EOF"
-          .      .
-       .   \    /   .
-        \   \  /   /
-         \  _)(_  /
-         / /    \ \
-        / | @  @ | \    [ KAMOS HAS POSSESSED THE SYSTEM ]
-        | \  --  / |
-        /_/------\_\
-           \____/
+  --size MB   Swap dosyası boyutu (varsayılan: RAM + 2048 MB)
+  --force     Mevcut swap dosyasının üzerine yaz
+  --restore   resume ayarlarını kaldır ve swap dosyasını sil
 EOF
-    echo -e "${SET_NC}"
-    exit 1
 }
 
-# Root Şaman Kontrolü
-if [[ $EUID -ne 0 ]]; then
-   error "Only a Root Shaman (sudo) can banish the shadows."
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		--size)
+			[[ $# -ge 2 ]] || die "--size bir MB değeri istiyor."
+			TARGET_SWAP_MB=$2
+			shift 2
+			;;
+		--size=*)
+			TARGET_SWAP_MB=${1#*=}
+			shift
+			;;
+		--force | -f)
+			FORCE=1
+			shift
+			;;
+		--restore)
+			RESTORE=1
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*) die "Bilinmeyen argüman: $1" ;;
+	esac
+done
+
+require_root
+require_arch
+have mkinitcpio || die "mkinitcpio bulunamadı."
+
+if [[ -n $TARGET_SWAP_MB && ! $TARGET_SWAP_MB =~ ^[0-9]+$ ]]; then
+	die "--size pozitif bir tam sayı olmalı (MB)."
 fi
 
-echo -e "${SET_YELLOW}"
-cat << "EOF"
-       Scanning for Kamos (The Karabasan of Configs)...
-               .      .
-            .   \    /   .
-             \   \  /   /
-              \  _)(_  /
-              / /    \ \
-             / | ^  ^ | \
-             | | @  @ | |
-             | \  --  / |
-             /_/------\_\
-EOF
-echo -e "${SET_NC}"
+BOOTLOADER=$(detect_bootloader)
+if [[ $BOOTLOADER == grub ]]; then
+	have grub-mkconfig || die "grub-mkconfig bulunamadı."
+fi
 
-log "Kamos detected in the kernel parameters. Initiating Arch-Kam ritual..."
+update_grub_cmdline() {
+	local file=/etc/default/grub
+	local line value new
 
-# Dosya Sistemi Tespiti
-FS_TYPE=$(stat -f -c %T /)
-log "Root filesystem detected: $FS_TYPE"
+	[[ -f $file ]] || die "GRUB yapılandırması yok: $file"
+	backup_once "$file" arch-kam-hibernate.bak
 
-# Hedef Swap Boyutu Hesaplama (RAM + 2GB)
-RAM_SIZE=$(free -m | grep -i mem | awk '{print $2}')
-TARGET_SWAP=$((RAM_SIZE + 2048))
-log "Target swap size for safe slumber: ${TARGET_SWAP}MB"
+	line=$(grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$file" | tail -n1 || true)
+	if [[ -z $line ]]; then
+		printf '\nGRUB_CMDLINE_LINUX_DEFAULT="resume=UUID=%s resume_offset=%s"\n' "$SWAP_UUID" "$NEW_OFFSET" >> "$file"
+		return
+	fi
 
-# Mevcut Swap'ı Kapat ve Yedekle
-warn "Disabling current swap and creating sacred backups..."
-swapoff -a 2>/dev/null || true
-[ -f /etc/default/grub ] && cp /etc/default/grub /etc/default/grub.bak
-[ -f /etc/mkinitcpio.conf ] && cp /etc/mkinitcpio.conf /etc/mkinitcpio.conf.bak
+	value=${line#GRUB_CMDLINE_LINUX_DEFAULT=}
+	value=${value#\"}
+	value=${value%\"}
+	new=$(filter_resume_words "$value")
+	new+="${new:+ }resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET"
 
-# Swap Dosyası Oluşturma Ritüeli
-if [[ "$FS_TYPE" == "btrfs" ]]; then
-    log "BTRFS detected. Applying specific shamanic protocols..."
-    truncate -s 0 /swapfile
-    chattr +C /swapfile
-    btrfs property set /swapfile compression none
-    fallocate -l "${TARGET_SWAP}M" /swapfile
+	awk -v new="$new" '
+		/^GRUB_CMDLINE_LINUX_DEFAULT=/ && !done {
+			print "GRUB_CMDLINE_LINUX_DEFAULT=\"" new "\""
+			done=1
+			next
+		}
+		{ print }
+	' "$file" > "$file.tmp"
+	mv "$file.tmp" "$file"
+}
+
+remove_grub_resume() {
+	local file=/etc/default/grub
+	local line value new
+
+	[[ -f $file ]] || return 0
+	backup_once "$file" arch-kam-hibernate.bak
+
+	line=$(grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$file" | tail -n1 || true)
+	[[ -n $line ]] || return 0
+
+	value=${line#GRUB_CMDLINE_LINUX_DEFAULT=}
+	value=${value#\"}
+	value=${value%\"}
+	new=$(filter_resume_words "$value")
+
+	awk -v new="$new" '
+		/^GRUB_CMDLINE_LINUX_DEFAULT=/ && !done {
+			print "GRUB_CMDLINE_LINUX_DEFAULT=\"" new "\""
+			done=1
+			next
+		}
+		{ print }
+	' "$file" > "$file.tmp"
+	mv "$file.tmp" "$file"
+}
+
+update_options_file() {
+	local file=$1
+	local line value new
+
+	line=$(grep -E '^options ' "$file" | tail -n1 || true)
+	if [[ -z $line ]]; then
+		printf 'options resume=UUID=%s resume_offset=%s\n' "$SWAP_UUID" "$NEW_OFFSET" >> "$file"
+		return
+	fi
+
+	value=${line#options }
+	new=$(filter_resume_words "$value")
+	new+="${new:+ }resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET"
+
+	awk -v new="$new" '
+		/^options / && !done {
+			if (new == "") print "options"
+			else print "options " new
+			done=1
+			next
+		}
+		{ print }
+	' "$file" > "$file.tmp"
+	mv "$file.tmp" "$file"
+}
+
+remove_options_file() {
+	local file=$1
+	local line value new
+
+	line=$(grep -E '^options ' "$file" | tail -n1 || true)
+	[[ -n $line ]] || return 0
+
+	value=${line#options }
+	new=$(filter_resume_words "$value")
+
+	awk -v new="$new" '
+		/^options / && !done {
+			if (new == "") print "options"
+			else print "options " new
+			done=1
+			next
+		}
+		{ print }
+	' "$file" > "$file.tmp"
+	mv "$file.tmp" "$file"
+}
+
+update_kernel_cmdline() {
+	local file=/etc/kernel/cmdline
+	local value new
+
+	[[ -f $file ]] || return 0
+	backup_once "$file" arch-kam-hibernate.bak
+
+	value=$(tr '\n' ' ' < "$file")
+	value=${value% }
+	new=$(filter_resume_words "$value")
+	new+="${new:+ }resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET"
+	printf '%s\n' "$new" > "$file"
+}
+
+remove_kernel_cmdline() {
+	local file=/etc/kernel/cmdline
+	local value new
+
+	[[ -f $file ]] || return 0
+	backup_once "$file" arch-kam-hibernate.bak
+
+	value=$(tr '\n' ' ' < "$file")
+	value=${value% }
+	new=$(filter_resume_words "$value")
+	printf '%s\n' "$new" > "$file"
+}
+
+update_systemd_boot_resume() {
+	local entry updated=0
+
+	update_kernel_cmdline
+	for entry in /boot/loader/entries/*.conf; do
+		[[ -e $entry ]] || continue
+		backup_once "$entry" arch-kam-hibernate.bak
+		update_options_file "$entry"
+		updated=1
+	done
+
+	(( updated )) || warn "systemd-boot entry bulunamadı; resume parametresini elle eklemen gerekebilir."
+}
+
+remove_systemd_boot_resume() {
+	local entry
+
+	remove_kernel_cmdline
+	for entry in /boot/loader/entries/*.conf; do
+		[[ -e $entry ]] || continue
+		backup_once "$entry" arch-kam-hibernate.bak
+		remove_options_file "$entry"
+	done
+}
+
+set_resume_hook() {
+	local file=/etc/mkinitcpio.conf
+
+	[[ -f $file ]] || die "mkinitcpio.conf yok: $file"
+	backup_once "$file" arch-kam-hibernate.bak
+
+	sed -i -E '/^HOOKS=/ s/[[:space:]]*\bresume\b[[:space:]]*/ /g' "$file"
+	if grep -qE '^HOOKS=.*\bblock\b' "$file"; then
+		sed -i -E '/^HOOKS=/ s/\bblock\b/block resume/' "$file"
+	elif grep -qE '^HOOKS=.*\budev\b' "$file"; then
+		sed -i -E '/^HOOKS=/ s/\budev\b/udev resume/' "$file"
+	elif grep -qE '^HOOKS=.*\bfilesystems\b' "$file"; then
+		sed -i -E '/^HOOKS=/ s/\bfilesystems\b/resume filesystems/' "$file"
+	else
+		sed -i -E '/^HOOKS=/ s/\)/ resume)/' "$file"
+	fi
+	sed -i -E '/^HOOKS=/ s/[[:space:]]+/ /g; /^HOOKS=/ s/\( /(/; /^HOOKS=/ s/ \)/)/' "$file"
+}
+
+remove_resume_hook() {
+	local file=/etc/mkinitcpio.conf
+
+	[[ -f $file ]] || return 0
+	backup_once "$file" arch-kam-hibernate.bak
+
+	sed -i -E '/^HOOKS=/ s/[[:space:]]*\bresume\b[[:space:]]*/ /g' "$file"
+	sed -i -E '/^HOOKS=/ s/[[:space:]]+/ /g; /^HOOKS=/ s/\( /(/; /^HOOKS=/ s/ \)/)/' "$file"
+}
+
+regenerate() {
+	case $BOOTLOADER in
+		grub)
+			have grub-mkconfig || die "grub-mkconfig bulunamadı."
+			grub-mkconfig -o /boot/grub/grub.cfg
+			;;
+		systemd-boot)
+			log "systemd-boot: kernel parametreleri entry dosyalarına yazıldı."
+			;;
+		*)
+			warn "Bootloader tanınmadı; resume parametrelerini elle kontrol et."
+			;;
+	esac
+	mkinitcpio -P
+}
+
+if (( RESTORE )); then
+	log "Uyku ritüeli geri alınıyor..."
+
+	case $BOOTLOADER in
+		grub) remove_grub_resume ;;
+		systemd-boot) remove_systemd_boot_resume ;;
+		*) warn "Bootloader tanınmadı; resume parametrelerini elle kaldır." ;;
+	esac
+	remove_resume_hook
+
+	if swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+		swapoff "$SWAPFILE"
+	fi
+	if [[ -e $SWAPFILE ]]; then
+		if (( FORCE )) || confirm "$SWAPFILE silinsin mi?"; then
+			rm -f "$SWAPFILE"
+		fi
+	fi
+
+	regenerate
+	log "Geri alma tamam. Yeniden başlat."
+	exit 0
+fi
+
+RAM_SIZE=$(free -m | awk '/^Mem:/ {print $2}')
+[[ -n $RAM_SIZE ]] || die "RAM boyutu okunamadı."
+: "${TARGET_SWAP_MB:=$((RAM_SIZE + 2048))}"
+(( TARGET_SWAP_MB > 0 )) || die "--size sıfırdan büyük olmalı."
+
+if (( TARGET_SWAP_MB < RAM_SIZE )); then
+	warn "Swap boyutu RAM'den küçük; hibernate başarısız olabilir."
+	if (( ! FORCE )) && ! confirm "Yine de devam edeyim mi?"; then
+		exit 1
+	fi
+fi
+
+if (( TARGET_SWAP_MB > 65536 )); then
+	warn "Swap boyutu ${TARGET_SWAP_MB}MB. Disk alanını kontrol et; --size ile küçültebilirsin."
+fi
+
+if swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+	if (( ! FORCE )); then
+		warn "$SWAPFILE aktif swap. Üzerine yazmak için --force kullan."
+		exit 1
+	fi
+	swapoff "$SWAPFILE"
+fi
+
+if [[ -e $SWAPFILE ]]; then
+	if (( ! FORCE )); then
+		warn "$SWAPFILE zaten var. Üzerine yazmak için --force kullan."
+		exit 1
+	fi
+	rm -f "$SWAPFILE"
+fi
+
+AVAIL_MB=$(df -Pm "$(dirname "$SWAPFILE")" 2>/dev/null | awk 'NR==2 {print $4}')
+if [[ -n ${AVAIL_MB:-} ]] && (( AVAIL_MB < TARGET_SWAP_MB + 512 )); then
+	die "Yetersiz disk alanı: ${AVAIL_MB}MB boş, ${TARGET_SWAP_MB}MB + 512MB gerekiyor."
+fi
+
+FS_TYPE=$(root_fs)
+log "Kök dosya sistemi: $FS_TYPE"
+log "Swap dosyası: $SWAPFILE (${TARGET_SWAP_MB}MB)"
+
+if [[ $FS_TYPE == btrfs ]]; then
+	log "BTRFS protokolü uygulanıyor..."
+	truncate -s 0 "$SWAPFILE"
+	chattr +C "$SWAPFILE" 2>/dev/null || warn "chattr +C uygulanamadı; dosya CoW açık olabilir."
+	if have btrfs; then
+		btrfs property set "$SWAPFILE" compression none || warn "Btrfs compression=none ayarlanamadı."
+	else
+		warn "btrfs komutu yok; compression=none atlandı."
+	fi
+	fallocate -l "${TARGET_SWAP_MB}M" "$SWAPFILE"
 else
-    log "Standard filesystem detected. Using dd for swap creation..."
-    dd if=/dev/zero of=/swapfile bs=1M count=$TARGET_SWAP status=progress
+	if have fallocate; then
+		fallocate -l "${TARGET_SWAP_MB}M" "$SWAPFILE"
+	else
+		dd if=/dev/zero of="$SWAPFILE" bs=1M count="$TARGET_SWAP_MB" status=progress
+	fi
 fi
 
-chmod 600 /swapfile
-mkswap /swapfile
-swapon /swapfile || error "Failed to activate the swap spirit!"
+chmod 600 "$SWAPFILE"
+mkswap "$SWAPFILE"
+swapon "$SWAPFILE" || die "Swap etkinleştirilemedi."
 
-# UUID ve Offset Hesaplama
-SWAP_UUID=$(findmnt -no UUID -T /swapfile)
-if [[ "$FS_TYPE" == "btrfs" ]]; then
-    if command -v btrfs-inspect-internal &> /dev/null; then
-        NEW_OFFSET=$(btrfs inspect-internal map-swapfile -r /swapfile)
-    else
-        warn "btrfs-progs not found. Falling back to filefrag rituals..."
-        NEW_OFFSET=$(filefrag -v /swapfile | awk '{if($1=="0:"){print $4}}' | sed 's/\..//')
-    fi
+SWAP_UUID=$(findmnt -no UUID -T "$SWAPFILE") || die "Swap UUID okunamadı."
+[[ -n $SWAP_UUID ]] || die "Swap UUID boş."
+
+if [[ $FS_TYPE == btrfs ]] && have btrfs && btrfs inspect-internal map-swapfile -r "$SWAPFILE" >/dev/null 2>&1; then
+	NEW_OFFSET=$(btrfs inspect-internal map-swapfile -r "$SWAPFILE")
 else
-    NEW_OFFSET=$(filefrag -v /swapfile | awk '{if($1=="0:"){print $4}}' | sed 's/\..//')
+	have filefrag || die "filefrag bulunamadı (util-linux)."
+	NEW_OFFSET=$(filefrag -v "$SWAPFILE" | awk '$1=="0:" {print $4; exit}' | tr -d '.')
+fi
+[[ -n $NEW_OFFSET ]] || die "resume_offset hesaplanamadı."
+
+ROOT_SOURCE=$(findmnt -no SOURCE / 2>/dev/null || true)
+ROOT_SOURCE=${ROOT_SOURCE%%\[*}
+if [[ -n $ROOT_SOURCE ]] && lsblk -no TYPE "$ROOT_SOURCE" 2>/dev/null | grep -qx crypt; then
+	warn "Şifreli kök algılandı; encrypt hook sırası ve resume parametresini elle doğrula."
 fi
 
-log "Calculated Sacred UUID: $SWAP_UUID"
-log "Calculated Sacred Offset: $NEW_OFFSET"
+log "Swap UUID: $SWAP_UUID"
+log "resume_offset: $NEW_OFFSET"
 
-# GRUB Güncelleme (Eski parametreleri temizle ve yenilerini yaz)
-log "Updating the sacred scrolls (/etc/default/grub)..."
-sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT=".*\)resume=[^ "]*\(.*\)"/\1\2"/' /etc/default/grub
-sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT=".*\)resume_offset=[^ "]*\(.*\)"/\1\2"/' /etc/default/grub
-sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"/GRUB_CMDLINE_LINUX_DEFAULT=\"resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET /" /etc/default/grub
+case $BOOTLOADER in
+	grub) update_grub_cmdline ;;
+	systemd-boot) update_systemd_boot_resume ;;
+	*) warn "Bootloader tanınmadı. Şu parametreyi elle ekle: resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET" ;;
+esac
 
-# Initcpio Hook Güncelleme
-log "Updating /etc/mkinitcpio.conf hooks..."
-if ! grep -q "resume" /etc/mkinitcpio.conf; then
-    sed -i '/^HOOKS=/s/)/ resume)/' /etc/mkinitcpio.conf
-fi
+set_resume_hook
+regenerate
 
-# Kernel Parametrelerini Uygula
-log "Regenerating GRUB and Initcpio. The spirits are awakening..."
-update-grub || error "GRUB update failed! Kamos is resisting."
-mkinitcpio -P || error "Initcpio generation failed! The ritual is broken."
-
-# --- THE SACRED MASTERPIECE BANNER ---
-echo -e "${SET_GREEN}"
-cat << "EOF"
-$$$$$$$$$$$$$$$$""$o$o$o$o$o$oo$$""$$$$$$$$$$$$$$$
-$$$$$$$$$$$$""o$$$$$$$$$$"$"$$$$$$$o$"$$$$$$$$$$$$
-$$$$$$$$$"$o$$$$""$oo $ ""      """$$$oo"$$$$$$$$$
-$$$$$$$"o  $$$ $$                        $$$$$$$$$
-$$$$$$$$$$o""$$$$$$$$$$$$$$$$$$$$$$$$$"oo$$$$$$$$$
-$$$$$$$$$$$$$o$""$$$$$$$$$$$$$$$$$""oo$$$$$$$$$$$$
-$$$$$$$$$$$$$$$$$$o$o$"$"$"$"$oo$o$$$$$$$$$$$$$$$$
-       [ THE ARCH-KAM HAS SEALED THE RITUAL ]
-EOF
-echo -e "--------------------------------------------------------"
-echo "  THE RITUAL OF ARCH-KAM IS COMPLETE"
-echo "  The spirits of the kernel have been appeased."
-echo "  Kamos has been exorcised from your system."
-echo "  The balance of your slumber is now restored."
-echo "--------------------------------------------------------"
-echo -e "${SET_NC}"
-
-log "Sacred configuration sealed with .bak protection."
-warn "Kowtow to the Machine Spirit: REBOOT your system now."
-warn "After awakening, test the slumber with: systemctl hibernate"
+log "Ritüel tamam. Yeniden başlat, sonra test et: systemctl hibernate"

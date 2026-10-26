@@ -1,61 +1,103 @@
 # arch-kam
 
-A sacred collection of digital shamanic rituals and orchestration scripts for Arch-based Linux distributions. This repository acts as your system's *Kam*, healing broken states, exorcising bugs, and restoring the cosmic balance of your configurations.
+A sacred collection of digital shamanic rituals for Arch-based Linux distributions. This repository acts as your system's *Kam*: it diagnoses possessed configs, heals broken swap states, and restores the cosmic balance of your boot setup.
 
----
+> These scripts write to system files. Read the warnings, keep backups, and do not run them on a system you do not understand.
 
-**`arch-kam`** translates this ancient wisdom into bash scripts. If your Linux is possessed by evil configuration demons or has lost its spiritual connection to the swap file, this repository is your digital guide.
+## Quick start
 
-## Available Rituals (Scripts)
+```bash
+git clone https://github.com/bymfd/arch-kam.git
+cd arch-kam
+chmod +x *.sh
+sudo ./arch-kam.sh
+```
 
-### 1. `hibernate-enabler.sh` (The Slumber Ritual)
-A powerful ritual to guide your system into a deep, protected slumber (hibernating to a swap file) and ensure a safe spiritual journey back (resume).
+Run `./arch-kam.sh` without `sudo` to see the menu; privileged rituals will tell you when they need root. You can also call a ritual directly:
 
-- **Supports:** BTRFS (with CoW disabling) and EXT4 filesystems.
-- **Action:** Calculates optimal swap space (RAM + 2GB safety), creates the swap file with the correct permissions, calculates the sacred UUID and Offset, and updates GRUB and Initcpio hooks.
-- **Safety:** Performs a digital backup (`.bak`) of your sacred scrolls (`/etc/default/grub` and `/etc/mkinitcpio.conf`) before modification.
+```bash
+sudo ./arch-kam.sh doctor
+sudo ./arch-kam.sh hibernate --size 32768
+sudo ./arch-kam.sh battery
+sudo ./arch-kam.sh boot
+sudo ./arch-kam.sh clean --dry-run
+```
 
----
+Every ritual has its own `--help`.
 
-### 2. **ARKUN: The Spirit of Endurance** (battery.sh)
-A sacred discipline to harmonize the machine's breath, calming its inner fire to preserve life force (**Battery Life**) during long journeys.
+## Rituals
 
-* **The Rite:** Invokes **TLP** protocols to manage energy flow, ensuring the system sips power with wisdom.
-* **The Duality:** Allows the traveler to **Grant Kut** (Install) for longevity or **Recall Kut** (Remove) for untamed performance.
-* **Thermal Balance:** Lowers the system's temperature by curbing excess energy, keeping the hardware cool and composed.
-* **Swift Restoration:** A single command purifies the system, removing the ritual and returning the machine to its primal state.
----
+### `doctor.sh` — The Diagnosis Rite
 
-### 3. **TIN:** Vision & Void (bootloader-bg.sh)
+Read-only. Checks the distribution, bootloader, root filesystem, disk space, swap/zram, hibernation support, `resume` kernel parameters, `mkinitcpio` hooks, TLP conflicts, failed systemd units, and orphan packages. It changes nothing and can run without root.
 
-A ritual to define the system's entry point and visual essence.
+### `hibernate-enabler.sh` — The Slumber Ritual
 
-*   The Vision: Allows the user to etch a custom image (PNG/JPG) onto the GRUB gateway.
+Configures hibernation to a swap file.
 
-*    The Void: Strips away all earthly illusions (themes/backgrounds) to achieve a Pure Black terminal interface.
+- Supports BTRFS (CoW disabled) and EXT4.
+- Default size is RAM + 2048 MB; override with `--size MB`.
+- Checks free disk space and refuses to overwrite an existing swap file without `--force`.
+- Writes `resume=` and `resume_offset=` for GRUB, systemd-boot entries, or `/etc/kernel/cmdline`.
+- Inserts the `resume` mkinitcpio hook after `block`/`udev`, before `filesystems`.
+- Backs up touched files as `*.arch-kam-hibernate.bak`.
+- `--restore` removes the resume parameters, the hook, and the swap file.
 
-*    Safety: Automatically creates sacred backups (.bak) of your scrolls before any modification.
+Reboot after configuring, then test with `systemctl hibernate`.
 
-*   Intelligence: Detects whether your system is guided by the ancient GRUB or the swift systemd-boot.
+### `battery.sh` — ARKUN, the Spirit of Endurance
 
----
-## Performing the Rituals
+TLP-based battery management.
 
-### Prerequisites
-- You must be a Root Shaman (have `sudo` privileges).
-- A functional brain (optional but recommended).
+- Installs/enables TLP with `--needed`.
+- Detects a running `power-profiles-daemon` and offers to disable it first.
+- Removes TLP and the arch-kam TLP drop-in.
+- Shows `tlp-stat` output.
+- Writes optional charge thresholds to `/etc/tlp.d/99-arch-kam.conf`.
 
-### Usage
+Charge thresholds are hardware-dependent; verify them with `tlp-stat -b`.
 
-1. **Summon the Repository:**
-   ```bash
-   git clone [https://github.com/yourusername/arch-kam.git](https://github.com/yourusername/arch-kam.git)
-   cd arch-kam
-   chmod +x *.sh
-    
-   sudo ./*.sh
-   
-   ```
-   
-## The Shamanic Tradition (Etymology)
-In ancient Turkic spirituality, a **Kam** is a shaman, healer, and spiritual guide. They perform rituals to connect the upper and lower worlds, cure ailments, and ensure the community's well-being.
+### `bootloader-bg.sh` — TIN, Vision and Void
+
+GRUB-only background manager.
+
+- Sets a PNG/JPG background (JPG is converted with ImageMagick when available).
+- Sets a pure black `console` mode.
+- Restores the original `/etc/default/grub` from `*.arch-kam-boot.bak`.
+
+systemd-boot does not support background images natively, so the script reports that instead of pretending otherwise.
+
+### `clean.sh` — The Cleanup Rite
+
+Safe, explicit cleanup with a dry-run mode.
+
+- `paccache -r` and `paccache -ruk0` (requires `pacman-contrib`).
+- `journalctl --vacuum-time=14d`.
+- Removes orphan packages after showing the list.
+- Runs `systemd-tmpfiles --clean`.
+
+Use `--dry-run` first. If `paccache` is missing, the package cache is left untouched.
+
+## Files and backups
+
+| File | Backup suffix |
+| --- | --- |
+| `/etc/default/grub` | `.arch-kam-hibernate.bak` or `.arch-kam-boot.bak` |
+| `/etc/mkinitcpio.conf` | `.arch-kam-hibernate.bak` |
+| `/etc/kernel/cmdline` | `.arch-kam-hibernate.bak` |
+| `/boot/loader/entries/*.conf` | `.arch-kam-hibernate.bak` |
+
+Backups are created once and never overwritten by a later run. Remove them manually when you are sure the new state is good.
+
+## Requirements
+
+- Arch-based distribution (`pacman`).
+- Bash, util-linux, `mkinitcpio`.
+- `btrfs-progs` for BTRFS hibernation.
+- `pacman-contrib` for `paccache`.
+- ImageMagick only if you want to use JPG boot backgrounds.
+- Root for anything that writes to the system.
+
+## The Shamanic Tradition
+
+In ancient Turkic spirituality, a **Kam** is a shaman, healer, and spiritual guide. They perform rituals to connect the upper and lower worlds, cure ailments, and ensure the community's well-being. These scripts are a small, modern echo of that tradition: inspect first, change carefully, and always leave a way back.
