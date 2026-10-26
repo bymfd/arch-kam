@@ -42,6 +42,8 @@ if ((!DRY_RUN)); then
 	require_root
 fi
 
+ISSUES=0
+
 run() {
 	if ((DRY_RUN)); then
 		printf '  [dry-run] %s\n' "$*"
@@ -49,8 +51,6 @@ run() {
 		"$@"
 	fi
 }
-
-section() { printf '\n%b== %s ==%b\n' "$C_CYAN" "$*" "$C_RESET"; }
 
 section "Özet"
 if [[ -d /var/cache/pacman/pkg ]]; then
@@ -66,6 +66,11 @@ if ((${#ORPHANS[@]} > 0)); then
 	printf '    %s\n' "${ORPHANS[@]}"
 else
 	printf '  Yetim paket: yok\n'
+fi
+
+mapfile -t FOREIGN < <(pacman -Qmq 2>/dev/null || true)
+if ((${#FOREIGN[@]} > 0)); then
+	printf '  Foreign (AUR) paketler: %s\n' "${#FOREIGN[@]}"
 fi
 
 if ((!YES && !DRY_RUN)); then

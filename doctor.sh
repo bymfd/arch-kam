@@ -21,14 +21,6 @@ if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
 fi
 [[ $# -eq 0 ]] || die "Bilinmeyen argüman: $1"
 
-section() { printf '\n%b== %s ==%b\n' "$C_CYAN" "$*" "$C_RESET"; }
-ok() { printf '  %b[ok]%b %s\n' "$C_GREEN" "$C_RESET" "$*"; }
-bad() {
-	printf '  %b[!!]%b %s\n' "$C_RED" "$C_RESET" "$*"
-	((ISSUES += 1))
-}
-note() { printf '  - %s\n' "$*"; }
-
 section "Sistem"
 if [[ -r /etc/os-release ]]; then
 	OS_NAME=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2; exit}' /etc/os-release)
@@ -80,6 +72,15 @@ if have zramctl && zramctl --noheadings 2>/dev/null | grep -q .; then
 	zramctl 2>/dev/null | sed 's/^/    /'
 fi
 
+# Swap boyutu vs RAM (hibernate için kritik)
+RAM_MB=$(free -m | awk '/^Mem:/ {print $2}')
+SWAP_MB=$(free -m | awk '/^Swap:/ {print $2}')
+if [[ -n $RAM_MB && -n $SWAP_MB ]] && ((SWAP_MB > 0)); then
+	if ((SWAP_MB < RAM_MB)); then
+		warn "Swap (${SWAP_MB}MB) RAM'den (${RAM_MB}MB) küçük; hibernate başarısız olabilir."
+	fi
+fi
+
 section "Hibernate"
 if grep -qw disk /sys/power/state 2>/dev/null; then
 	ok "Kernel hibernate (disk) destekliyor"
@@ -91,7 +92,7 @@ CMDLINE=$(cat /proc/cmdline 2>/dev/null || true)
 if [[ $CMDLINE =~ (^| )resume=([^ ]+) ]]; then
 	ok "resume=${BASH_REMATCH[2]}"
 else
-	bad "resume= kernel parametresi yok"
+	note "resume= kernel parametresi yok (hibernate kullanmıyorsan normaldir)"
 fi
 
 if [[ $CMDLINE =~ (^| )resume_offset=([^ ]+) ]]; then
@@ -123,22 +124,15 @@ if systemctl is-active --quiet power-profiles-daemon.service 2>/dev/null; then
 fi
 
 section "Servisler ve paketler"
-FAILED=$(systemctl --failed --no-legend --no-pager 2>/dev/null || true)
-if [[ -n $FAILED ]]; then
-	bad "Başarısız systemd unit:"
-	printf '%s\n' "$FAILED" | sed 's/^/    /'
-else
-	ok "Başarısız systemd unit yok"
-fi
+daemon_summary
+package_summary
 
-if have pacman; then
-	mapfile -t ORPHANS < <(pacman -Qtdq 2>/dev/null || true)
-	if ((${#ORPHANS[@]} > 0)); then
-		note "Yetim paketler (${#ORPHANS[@]}):"
-		printf '    %s\n' "${ORPHANS[@]}"
-	else
-		ok "Yetim paket yok"
-	fi
+# Pacnew çiftleri (yapılandırma riski)
+PACNEW_COUNT=$(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null | wc -l || true)
+if ((PACNEW_COUNT > 0)); then
+	warn "$PACNEW_COUNT .pacnew/.pacsave çifti bekliyor; pacdiff ritüeli çalıştır."
+else
+	ok "Pacnew çifti yok"
 fi
 
 printf '\n'

@@ -69,25 +69,15 @@ update_grub_cmdline() {
 
 	line=$(grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$file" | tail -n1 || true)
 	if [[ -z $line ]]; then
-		printf '\nGRUB_CMDLINE_LINUX_DEFAULT="resume=UUID=%s resume_offset=%s"\n' "$SWAP_UUID" "$NEW_OFFSET" >> "$file"
+		upsert_line "$file" '^GRUB_CMDLINE_LINUX_DEFAULT=' "GRUB_CMDLINE_LINUX_DEFAULT=\"resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET\""
 		return
 	fi
 
-	value=${line#GRUB_CMDLINE_LINUX_DEFAULT=}
-	value=${value#\"}
-	value=${value%\"}
+	value=$(strip_quotes "${line#GRUB_CMDLINE_LINUX_DEFAULT=}")
 	new=$(filter_resume_words "$value")
 	new+="${new:+ }resume=UUID=$SWAP_UUID resume_offset=$NEW_OFFSET"
 
-	awk -v new="$new" '
-		/^GRUB_CMDLINE_LINUX_DEFAULT=/ && !done {
-			print "GRUB_CMDLINE_LINUX_DEFAULT=\"" new "\""
-			done=1
-			next
-		}
-		{ print }
-	' "$file" > "$file.tmp"
-	mv "$file.tmp" "$file"
+	upsert_line "$file" '^GRUB_CMDLINE_LINUX_DEFAULT=' "GRUB_CMDLINE_LINUX_DEFAULT=\"$new\""
 }
 
 remove_grub_resume() {
@@ -100,20 +90,10 @@ remove_grub_resume() {
 	line=$(grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$file" | tail -n1 || true)
 	[[ -n $line ]] || return 0
 
-	value=${line#GRUB_CMDLINE_LINUX_DEFAULT=}
-	value=${value#\"}
-	value=${value%\"}
+	value=$(strip_quotes "${line#GRUB_CMDLINE_LINUX_DEFAULT=}")
 	new=$(filter_resume_words "$value")
 
-	awk -v new="$new" '
-		/^GRUB_CMDLINE_LINUX_DEFAULT=/ && !done {
-			print "GRUB_CMDLINE_LINUX_DEFAULT=\"" new "\""
-			done=1
-			next
-		}
-		{ print }
-	' "$file" > "$file.tmp"
-	mv "$file.tmp" "$file"
+	upsert_line "$file" '^GRUB_CMDLINE_LINUX_DEFAULT=' "GRUB_CMDLINE_LINUX_DEFAULT=\"$new\""
 }
 
 update_options_file() {
